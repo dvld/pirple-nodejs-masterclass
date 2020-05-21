@@ -9,19 +9,25 @@ const url = require('url');
 const StringDecoder = require('string_decoder').StringDecoder;
 const fs = require('fs');
 
-const config = require('./config');
+const handlers = require('./lib/handlers');
+const helpers = require('./lib/helpers');
+const config = require('./lib/config');
 
 // Extract config values
 const { httpPort, httpsPort, envName } = config;
 
 // Instantiate http server
 const httpServer = http.createServer((req, res) => {
+
   unifiedServer(req, res);
+
 });
 
 // Start http server
 httpServer.listen(httpPort, () => {
+
   console.log(`Server now listening on port ${httpPort} in ${envName}`);
+
 });
 
 // Instantiate https server
@@ -31,12 +37,16 @@ const httpsServerOptions = {
 };
 
 const httpsServer = https.createServer(httpsServerOptions, (req, res) => {
+
   unifiedServer(req, res);
+
 });
 
 // Start https server
 httpsServer.listen(httpsPort, () => {
+
   console.log(`Server now listening on port ${httpsPort} in ${envName}`);
+
 });
 
 // Server logic for both http and https
@@ -62,11 +72,15 @@ const unifiedServer = (req, res) => {
   let payload = '';
 
   req.on('data', (data) => {
+
     payload += decoder.write(data);
+
   });
 
   req.on('end', () => {
+
     payload += decoder.end();
+    payload = helpers.parseJsonToObject(payload);
 
     // Determine request handler
     const chosenHandler = typeof(router[path]) !== 'undefined' ? router[path] : handlers.notFound;
@@ -111,20 +125,8 @@ const unifiedServer = (req, res) => {
 
 };
 
-// Define handlers
-const handlers = {};
-
-// Ping handler
-handlers.ping = (data, callback) => {
-  callback(200);
-};
-
-// Not found handler
-handlers.notFound = (data, callback) => {
-  callback(404);
-};
-
-// Define a request router
+// Define request router
 const router = {
-  'ping': handlers.ping
+  'ping': handlers.ping,
+  'users': handlers.users
 };

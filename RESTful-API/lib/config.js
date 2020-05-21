@@ -9,13 +9,15 @@ const environments = {};
 environments.staging = {
   'httpPort': 3000,
   'httpsPort': 3001,
-  'envName': 'staging'
+  'envName': 'staging',
+  'hashingSecret': 'This is a secret'
 };
 
 environments.production = {
   'httpPort': 5000,
   'httpsPort': 5001,
-  'envName': 'production'
+  'envName': 'production',
+  'hashingSecret': 'This is a secret'
 };
 
 // Determine environment
