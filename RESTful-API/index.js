@@ -5,6 +5,7 @@
 // Dependencies
 const http = require('http');
 const url = require('url');
+const StringDecoder = require('string_decoder').StringDecoder;
 
 // Server should respond to all requests with a string
 const server = http.createServer((req, res) => {
@@ -13,8 +14,7 @@ const server = http.createServer((req, res) => {
   const parsedUrl = url.parse(req.url, true);
 
   // Get the path
-  const path = parsedUrl.pathname;
-  const trimmedPath = path.replace(/^\/+|\/+$/g, '');
+  const path = parsedUrl.pathname.replace(/^\/+|\/+$/g, '');
 
   // Get the query string as an object
   const queryStringObject = parsedUrl.query;
@@ -25,17 +25,35 @@ const server = http.createServer((req, res) => {
   // Get headers as an object
   const headers = req.headers;
 
-  // Send the response
-  res.end('hello world');
+  // Get payload, if any
+  const decoder = new StringDecoder('utf-8');
+  let payload = '';
 
-  // Log the request path
-  console.log(`
-    Request received...
-    Path: ${trimmedPath}
-    Method: ${method}
-    Query Strings: ${JSON.stringify(queryStringObject)}
-    Headers: ${JSON.stringify(headers)}`
-  );
+  req.on('data', (data) => {
+    payload += decoder.write(data);
+  });
+
+  req.on('end', () => {
+    payload += decoder.end();
+
+    // Send the response
+    res.end('hello world');
+  
+    // Log the request path
+    const requestLog = {
+      path,
+      method,
+      queryStringObject,
+      headers,
+      payload
+    };
+
+    console.log(`
+      Request received...
+      ${JSON.stringify(requestLog)}`
+    );
+
+  });
 
 });
 
