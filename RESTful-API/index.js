@@ -22,6 +22,9 @@ const server = http.createServer((req, res) => {
   // Get the HTTP method
   const method = req.method.toLowerCase();
 
+  // Get headers as an object
+  const headers = req.headers;
+
   // Send the response
   res.end('hello world');
 
@@ -30,7 +33,8 @@ const server = http.createServer((req, res) => {
     Request received...
     Path: ${trimmedPath}
     Method: ${method}
-    Query Strings: ${JSON.stringify(queryStringObject)}`
+    Query Strings: ${JSON.stringify(queryStringObject)}
+    Headers: ${JSON.stringify(headers)}`
   );
 
 });
