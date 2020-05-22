@@ -18,16 +18,12 @@ const { httpPort, httpsPort, envName } = config;
 
 // Instantiate http server
 const httpServer = http.createServer((req, res) => {
-
   unifiedServer(req, res);
-
 });
 
 // Start http server
 httpServer.listen(httpPort, () => {
-
   console.log(`Server now listening on port ${httpPort} in ${envName}`);
-
 });
 
 // Instantiate https server
@@ -37,21 +33,16 @@ const httpsServerOptions = {
 };
 
 const httpsServer = https.createServer(httpsServerOptions, (req, res) => {
-
   unifiedServer(req, res);
-
 });
 
 // Start https server
 httpsServer.listen(httpsPort, () => {
-
   console.log(`Server now listening on port ${httpsPort} in ${envName}`);
-
 });
 
 // Server logic for both http and https
 const unifiedServer = (req, res) => {
-
   // Get the url and parse it
   const parsedUrl = url.parse(req.url, true);
 
@@ -72,13 +63,10 @@ const unifiedServer = (req, res) => {
   let payload = '';
 
   req.on('data', (data) => {
-
     payload += decoder.write(data);
-
   });
 
   req.on('end', () => {
-
     payload += decoder.end();
     payload = helpers.parseJsonToObject(payload);
 
@@ -96,7 +84,6 @@ const unifiedServer = (req, res) => {
 
     // Route request to chosen handler
     chosenHandler(data, (statusCode, payload) => {
-
       // use status code or default to 200
       statusCode = typeof(statusCode) == 'number' ? statusCode : 200;
 
@@ -111,7 +98,6 @@ const unifiedServer = (req, res) => {
       res.writeHead(statusCode);
       res.end(payloadString);
 
-      // Log the request
       console.log(`
         Request received...
         Responding...
@@ -128,5 +114,6 @@ const unifiedServer = (req, res) => {
 // Define request router
 const router = {
   'ping': handlers.ping,
-  'users': handlers.users
+  'users': handlers.users,
+  'tokens': handlers.tokens
 };
