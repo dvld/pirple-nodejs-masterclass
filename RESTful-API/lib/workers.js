@@ -8,10 +8,11 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
-const url = require('url');
+const URL = require('url');
 
 const _data = require('./data');
 const helpers = require('./helpers');
+const _logs = require('./logs');
 
 // Instantiate worker object
 const workers = {};
@@ -56,12 +57,12 @@ workers.validateCheckData = (originalCheckData) => {
   protocol =typeof(protocol) == 'string' && ['http', 'https'].indexOf(protocol) > -1 ? protocol.trim() : false;
   url =typeof(url) == 'string' && url.trim().length > 0 ? url.trim() : false;
   method =typeof(method) == 'string' && ['post', 'get', 'put', 'delete'].indexOf(method) > -1 ? method.trim() : false;
-  successCodes =typeof(successCodes) == 'object' && successCodes instanceof Array && successCodes.length > 0 ? successCodes.trim() : false;
-  timeoutSeconds =typeof(timeoutSeconds) == 'number' && timeoutSeconds % 1 === 0 && timeoutSeconds >= 1 && timeoutSeconds <= 5 ? timeoutSeconds.trim() : false;
+  successCodes =typeof(successCodes) == 'object' && successCodes instanceof Array && successCodes.length > 0 ? successCodes : false;
+  timeoutSeconds =typeof(timeoutSeconds) == 'number' && timeoutSeconds % 1 === 0 && timeoutSeconds >= 1 && timeoutSeconds <= 5 ? timeoutSeconds : false;
 
   // Set keys that may not be set if workers have never seen the check
   originalCheckData.state = typeof(originalCheckData.state) == 'string' && ['up', 'down'].indexOf(originalCheckData.state) > -1 ? originalCheckData.state : 'down';
-  originalCheckData.lastChecked =typeof(originalCheckData.lastChecked) == 'number' && originalCheckData.lastChecked > 0 ? originalCheckData.lastChecked.trim() : false;
+  originalCheckData.lastChecked =typeof(originalCheckData.lastChecked) == 'number' && originalCheckData.lastChecked > 0 ? originalCheckData.lastChecked : false;
 
   // If all checks are cleared, pass data along
   if (id && protocol && url && method && successCodes && timeoutSeconds) {
@@ -72,13 +73,201 @@ workers.validateCheckData = (originalCheckData) => {
 
 };
 
+// Perform check, send original check data and outcome to next process
+workers.performCheck = (originalCheckData) => {
+  let { protocol, url, method, timeoutSeconds } = originalCheckData;
 
+  // Prepare initial check outcome
+  const checkOutcome = {
+    'error': false,
+    'responseCode': false
+  };
+
+  // Mark outcome has not been sent yet
+  let outcomeSent = false;
+
+  // Parse hostname and path out of original check data
+  const parsedUrl = URL.parse(`${protocol}://${url}`, true);
+  const { hostname, path } = parsedUrl;
+
+  // Construct the request
+  const requestDetails = {
+    'protocol': `${protocol}:`,
+    hostname,
+    'method': method.toUpperCase(),
+    path,
+    'timeout': timeoutSeconds * 1000
+  };
+
+  // Instantiate request object (using either http or https)
+  const _moduleToUse = protocol == 'http' ? http : https;
+
+  const req = _moduleToUse.request(requestDetails, (res) => {
+    // Grab status of sent request
+    const status = res.statusCode;
+
+    // Update checkOutcome and pass along data
+    checkOutcome.responseCode = status;
+
+    if (!outcomeSent) {
+      workers.processCheckOutcome(originalCheckData, checkOutcome);
+      outcomeSent = true;
+    }
+  });
+
+  // Bind to error event
+  req.on('error', (err) => {
+    // Update check outcome and pass along data
+    checkOutcome.error = {
+      'error': true,
+      'value': err
+    };
+
+    if (!outcomeSent) {
+      workers.processCheckOutcome(originalCheckData, checkOutcome);
+      outcomeSent = true;
+    }
+  });
+
+  // Bind to timeout event
+  req.on('timeout', (err) => {
+    // Update check outcome and pass along data
+    checkOutcome.error = {
+      'error': true,
+      'value': 'timeout'
+    };
+
+    if (!outcomeSent) {
+      workers.processCheckOutcome(originalCheckData, checkOutcome);
+      outcomeSent = true;
+    }
+  });
+
+  // End request
+  req.end();
+
+};
+
+// Process check outcome and update check data as needed, and trigger alerts as needed
+// Special logic for accomodating checks that have never been tested (no alert)
+workers.processCheckOutcome = (originalCheckData, checkOutcome) => {
+  // Decide if check is considered 'up' or 'down'
+  const state = !checkOutcome.error && checkOutcome.responseCode && originalCheckData.successCodes.indexOf(checkOutcome.responseCode) > -1 ? 'up' : 'down';
+
+  // Decide if an alert is warranted
+  const alertWarranted = originalCheckData.lastChecked && originalCheckData.state !== state ? true : false;
+  
+  // log the outcome
+  const timeOfCheck = Date.now();
+  workers.log(originalCheckData, checkOutcome, state, alertWarranted, timeOfCheck);
+
+  // Update check data
+  let newCheckData = originalCheckData;
+  newCheckData.state = state;
+  newCheckData.lastChecked = timeOfCheck;
+
+  // Store update check data
+  _data.update('checks', newCheckData.id, newCheckData, (err) => {
+    if (!err) {
+
+      // Send new check data to next phase if needed
+      if (alertWarranted) {
+        workers.alertUserToStatusChange(newCheckData);
+      } else {
+        console.log('Check outcome has not changed, no alert needed');
+      }
+
+    } else {
+      console.log('Error trying to save updates');
+    }
+  });
+
+};
+
+// Alert the user to a change in check status
+workers.alertUserToStatusChange = (newCheckData) => {
+  const { method, protocol, url, state, userPhone } = newCheckData;
+  const message = `Alert: Your check for ${method.toUpperCase()} ${protocol}://${url} is currently ${state}`;
+
+  helpers.sendTwilioSms(userPhone, message, (err) => {
+    if (!err) {
+      console.log('Success: User was alerted to status change via SMS', message);
+    } else {
+      console.log('Error: Could not send SMS alert to user who had a state change');
+    }
+  });
+
+};
+
+workers.log = (originalCheckData, checkOutcome, state, alertWarranted, timeOfCheck) => {
+  // Form the log data
+  const logData = {
+    'check': originalCheckData,
+    'outcome': checkOutcome,
+    state,
+    'alert': alertWarranted,
+    'time': timeOfCheck
+  };
+
+  // Convert data to a string
+  const logString = JSON.stringify(logData);
+
+  // Determine log file name
+  const logFileName = originalCheckData.id;
+
+  // Append log string to file
+  _logs.append(logFileName, logString, (err) => {
+    if (!err) {
+      console.log('Logging to file successful');
+    } else {
+      console.log('Logging to file failed');
+    }
+  });
+
+};
 
 // Execute worker process once per minute
 workers.loop = () => {
   setInterval(() => {
     workers.gatherAllChecks();
-  }, 60000);
+  }, 1000 * 60);
+};
+
+// Rotate (compress) all log files
+workers.rotateLogs = () => {
+  // List all (non compressed) log files
+  _logs.list(false, (err, logs) => {
+    if (!err && logs && logs.length > 0) {
+      logs.forEach((logName) => {
+        // Compress data to a different file
+        const logId = logName.replace('.log', '');
+        const newFileId = `${logId}-${Date.now()}`;
+        _logs.compress(logId, newFileId, (err) => {
+          if (!err) {
+            // Truncate log
+            _logs.truncate(logId, (err) => {
+              if (!err) {
+                console.log('Success truncating log file');
+              } else {
+                console.log('Error truncating log file');
+              }
+            });
+          } else {
+            console.log('Error compressing log file', err);
+          }
+        });
+      });
+    } else {
+      console.log('Error: Could not find any logs to rotate');
+    }
+  });
+};
+
+// Timer to execute log rotation process once per day
+workers.logRotationLoop = () => {
+  setInterval(() => {
+    workers.gatherAllChecks();
+  }, 1000 * 60 * 60 * 24);
 };
 
 // Init worker function
@@ -88,6 +277,12 @@ workers.init = () => {
 
   // Execute checks on interval
   workers.loop();
+
+  // Compress all logs on startup
+  workers.rotateLogs();
+
+  // Call the compression loop periodically
+  workers.logRotationLoop();
 
 };
 

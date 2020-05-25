@@ -128,7 +128,7 @@ lib.delete = (dir, file, callback) => {
 
 // List all items in a directory
 lib.list = (directory, callback) => {
-  fs.readdir(`${lib.baseDir}${dir}/`, (err, data) => {
+  fs.readdir(`${lib.baseDir}${directory}/`, (err, data) => {
 
     if (!err && data && data.length > 0) {
       const trimmedFileNames = [];
